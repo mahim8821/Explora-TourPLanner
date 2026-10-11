@@ -1,4 +1,4 @@
-# Explora — Tour Planner & Travel Companion 🌍✈️
+# Explora — Tour Planner
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Expo](https://img.shields.io/badge/Expo-SDK%2057-black.svg)](https://expo.dev)
