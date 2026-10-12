@@ -9,15 +9,21 @@ import { Typography } from '../theme/typography';
 import { Spacing, Radius } from '../theme/spacing';
 import { useTheme } from '../theme/ThemeContext';
 import { AppColors } from '../theme/colors';
-import { useAppSelector } from '../store';
+import { useAppDispatch, useAppSelector } from '../store';
+import { setUser } from '../store/slices/authSlice';
 import { getUserProfile, updateUserProfile, UserProfile } from '../firebase/userService';
 import { subscribeToUserBookings, Booking } from '../firebase/bookingService';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadTripImage } from '../firebase/storageService';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RootStackParamList } from '../navigation/AppNavigator';
 
 const DEFAULT_INTERESTS = ['Mountains', 'Beaches', 'Nature', 'Camping', 'Photography', 'Food Tours'];
 
 export default function ProfileScreen() {
+  const dispatch = useAppDispatch();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { items: bookmarks } = useAppSelector(s => s.bookmarks);
   const { user } = useAppSelector(s => s.auth);
   const { colors, isDark } = useTheme();
@@ -35,18 +41,28 @@ export default function ProfileScreen() {
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   const [coverPhoto, setCoverPhoto] = useState<string | null>(null);
 
-  // Load profile from Firestore
+  // Load profile from Firestore with auth fallback
   const loadProfile = useCallback(async () => {
-    if (!user?.uid) return;
+    const currentUid = user?.uid || auth.currentUser?.uid;
+    if (!currentUid) {
+      setLoadingProfile(false);
+      return;
+    }
     try {
-      const data = await getUserProfile(user.uid);
+      const data = await getUserProfile(currentUid);
       if (data) {
         setProfile(data);
-        setName(data.displayName ?? user.displayName ?? 'Explorer');
+        setName(data.displayName ?? user?.displayName ?? auth.currentUser?.displayName ?? 'Explorer');
         setBio(data.bio ?? 'Adventure seeker & travel enthusiast 🌏');
-        setProfilePhoto(data.photoURL ?? user.photoURL ?? null);
+        setProfilePhoto(data.photoURL ?? user?.photoURL ?? auth.currentUser?.photoURL ?? null);
         setCoverPhoto(data.coverPhotoURL ?? null);
+      } else {
+        setName(user?.displayName ?? auth.currentUser?.displayName ?? 'Explorer');
+        setBio('Adventure seeker & travel enthusiast 🌏');
+        setProfilePhoto(user?.photoURL ?? auth.currentUser?.photoURL ?? null);
       }
+    } catch (e) {
+      console.warn('Profile load error:', e);
     } finally {
       setLoadingProfile(false);
     }
@@ -56,16 +72,17 @@ export default function ProfileScreen() {
 
   // Real-time bookings
   useEffect(() => {
-    if (!user?.uid) return;
-    const unsub = subscribeToUserBookings(user.uid, setBookings);
+    const currentUid = user?.uid || auth.currentUser?.uid;
+    if (!currentUid) return;
+    const unsub = subscribeToUserBookings(currentUid, setBookings);
     return unsub;
   }, [user?.uid]);
 
-  const displayName = name || user?.displayName || 'Explorer';
-  const displayEmail = user?.email ?? '';
-  const photoURL = profilePhoto || profile?.photoURL || user?.photoURL
-    ? (profilePhoto || profile?.photoURL || user?.photoURL)
-    : `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=FF6B35&color=fff&size=200`;
+  const displayName = name || user?.displayName || auth.currentUser?.displayName || 'Explorer';
+  const displayEmail = user?.email ?? auth.currentUser?.email ?? '';
+  const photoURL = profilePhoto || profile?.photoURL || user?.photoURL || auth.currentUser?.photoURL
+    ? (profilePhoto || profile?.photoURL || user?.photoURL || auth.currentUser?.photoURL)
+    : `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=0F3F35&color=fff&size=200`;
   const defaultCover = 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800';
   const displayCover = coverPhoto || profile?.coverPhotoURL || defaultCover;
 
@@ -82,13 +99,17 @@ export default function ProfileScreen() {
       quality: 0.8,
     });
     if (!result.canceled && result.assets?.length) {
+      const pickedUri = result.assets[0].uri;
+      if (type === 'profile') setProfilePhoto(pickedUri);
+      else setCoverPhoto(pickedUri);
+
       setUploadingImage(true);
       try {
-        const url = await uploadTripImage(result.assets[0].uri);
+        const url = await uploadTripImage(pickedUri);
         if (type === 'profile') setProfilePhoto(url);
         else setCoverPhoto(url);
       } catch (e: any) {
-        Alert.alert('Upload failed', e.message);
+        console.warn('Remote upload failed, local preview preserved:', e);
       } finally {
         setUploadingImage(false);
       }
@@ -96,23 +117,50 @@ export default function ProfileScreen() {
   };
 
   const handleSave = async () => {
-    if (!user?.uid) return;
+    const currentUid = user?.uid || auth.currentUser?.uid;
+    if (!currentUid) {
+      Alert.alert('Sign In Required', 'Please sign in to update your profile.');
+      return;
+    }
     setSaving(true);
     try {
-      const updates: Partial<UserProfile> = { displayName: name.trim(), bio: bio.trim() };
+      const trimmedName = name.trim();
+      const trimmedBio = bio.trim();
+
+      const updates: Partial<UserProfile> = {
+        displayName: trimmedName || 'Explorer',
+        bio: trimmedBio,
+      };
       if (profilePhoto) updates.photoURL = profilePhoto;
       if (coverPhoto) updates.coverPhotoURL = coverPhoto;
 
-      await updateUserProfile(user.uid, updates);
-      if (profilePhoto && auth.currentUser) {
-         await updateProfile(auth.currentUser, { photoURL: profilePhoto });
+      // 1. Save to Firestore (creates or merges without throwing)
+      await updateUserProfile(currentUid, updates);
+
+      // 2. Update Firebase Auth Profile (name + photo)
+      if (auth.currentUser) {
+        await updateProfile(auth.currentUser, {
+          displayName: trimmedName || auth.currentUser.displayName,
+          photoURL: profilePhoto || auth.currentUser.photoURL,
+        });
+      }
+
+      // 3. Update Redux auth state so all screens update immediately
+      if (user) {
+        dispatch(
+          setUser({
+            ...user,
+            displayName: trimmedName || user.displayName,
+            photoURL: profilePhoto || user.photoURL,
+          })
+        );
       }
 
       await loadProfile();
       setEditing(false);
       Alert.alert('Saved', 'Your profile has been updated.');
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      Alert.alert('Error', e.message || 'Failed to update profile.');
     } finally {
       setSaving(false);
     }
@@ -294,6 +342,25 @@ export default function ProfileScreen() {
           </View>
         </View>
 
+        {/* Settings & Preferences */}
+        <TouchableOpacity
+          id="profile-settings-btn"
+          style={styles.settingsRowBtn}
+          onPress={() => navigation.navigate('Menu')}
+          activeOpacity={0.7}
+        >
+          <View style={styles.settingsRowLeft}>
+            <View style={[styles.settingsIconCircle, { backgroundColor: colors.surfaceElevated }]}>
+              <Text style={{ fontSize: 16 }}>⚙️</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.settingsTitle, { color: colors.text }]}>Settings & Preferences</Text>
+              <Text style={[styles.settingsSubtitle, { color: colors.textMuted }]}>Dark mode, notifications, account</Text>
+            </View>
+          </View>
+          <Text style={[styles.settingsChevron, { color: colors.textMuted }]}>›</Text>
+        </TouchableOpacity>
+
         {/* Sign Out */}
         <TouchableOpacity id="sign-out-btn" style={styles.signOutBtn} onPress={handleSignOut} activeOpacity={0.8}>
           <Text style={styles.signOutText}>Sign Out</Text>
@@ -403,6 +470,44 @@ function makeStyles(c: AppColors) {
     tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
     tag: { backgroundColor: c.surface, borderRadius: Radius.full, paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs, borderWidth: StyleSheet.hairlineWidth, borderColor: c.border },
     tagText: { fontSize: Typography.size.sm, color: c.textSecondary },
+
+    settingsRowBtn: {
+      marginHorizontal: Spacing.xl,
+      marginBottom: Spacing.lg,
+      backgroundColor: c.surface,
+      borderRadius: Radius.xl,
+      padding: Spacing.base,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: c.border,
+    },
+    settingsRowLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.md,
+      flex: 1,
+    },
+    settingsIconCircle: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    settingsTitle: {
+      fontSize: Typography.size.sm,
+      fontWeight: Typography.weight.semiBold,
+    },
+    settingsSubtitle: {
+      fontSize: Typography.size.xs,
+      marginTop: 2,
+    },
+    settingsChevron: {
+      fontSize: 22,
+      fontWeight: '300',
+    },
 
     signOutBtn: {
       marginHorizontal: Spacing.xl,

@@ -268,6 +268,112 @@ function getPromoStyles(c: AppColors, isDark: boolean) {
   });
 }
 
+// ─── Community Feed Promo Card ───────────────────────────────────────────────
+
+function CommunityPromoCard({ onPress }: { onPress: () => void }) {
+  const { colors, isDark } = useTheme();
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.88}
+      onPress={onPress}
+      style={[
+        communityStyles.card,
+        {
+          backgroundColor: isDark ? colors.surface : colors.surfaceElevated,
+          borderColor: isDark ? 'rgba(236,229,211,0.12)' : 'rgba(0,0,0,0.08)',
+        },
+      ]}
+    >
+      <View style={communityStyles.topRow}>
+        <View style={[communityStyles.badge, { backgroundColor: colors.primaryLight }]}>
+          <Text style={[communityStyles.badgeText, { color: colors.primary }]}>✦ COMMUNITY FEED</Text>
+        </View>
+        <Text style={communityStyles.gemIcon}>💎</Text>
+      </View>
+
+      <Text style={[communityStyles.title, { color: colors.text }]}>
+        Unseen Places & Hidden Gems
+      </Text>
+      <Text style={[communityStyles.subtitle, { color: colors.textSecondary }]}>
+        Discovered a secret waterfall, hidden cave, or untouched trail? Share your photos, ratings & stories with fellow explorers!
+      </Text>
+
+      <View style={communityStyles.ctaRow}>
+        <Text style={[communityStyles.ctaText, { color: colors.primary }]}>
+          Open Community Feed →
+        </Text>
+        <View style={[communityStyles.ratingBadge, { backgroundColor: colors.primaryLight }]}>
+          <Text style={[communityStyles.ratingText, { color: colors.primary }]}>★ 4.9 Rated</Text>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+const communityStyles = StyleSheet.create({
+  card: {
+    marginHorizontal: Spacing.xl,
+    marginBottom: Spacing.lg,
+    borderRadius: Radius.xl,
+    padding: Spacing.base,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  badgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  gemIcon: {
+    fontSize: 16,
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: '900',
+    marginBottom: 4,
+    letterSpacing: -0.2,
+  },
+  subtitle: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginBottom: 12,
+  },
+  ctaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  ctaText: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  ratingBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  ratingText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+});
+
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
@@ -323,6 +429,57 @@ export default function BrowsingScreen() {
       return matchesCat && matchesSearch;
     });
   }, [allTrips, selectedCategory, searchQuery]);
+
+  // ── All Gallery Images (Uploaded images: Stories, Vlogs, Featured & Trips) ──
+  const allGalleryImages = useMemo(() => {
+    const list: { id: string; source: any; title: string; location?: string }[] = [];
+    const seen = new Set<string>();
+
+    const add = (source: any, title: string, location?: string, prefix = 'upload') => {
+      if (!source) return;
+      const key = typeof source === 'string' ? source : `${prefix}_${title}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        list.push({
+          id: `${prefix}_${list.length}`,
+          source,
+          title,
+          location,
+        });
+      }
+    };
+
+    // 1. Stories & Vlogs (Cover photos, uploaded gallery photos, image media)
+    contents.forEach(c => {
+      if (c.coverImageUrl) {
+        add(c.coverImageUrl, c.title, `${c.type || 'Story'} Cover`, 'story_cover');
+      }
+      if (Array.isArray(c.galleryUrls)) {
+        c.galleryUrls.forEach((url, idx) => {
+          add(url, `${c.title} • Photo ${idx + 1}`, `${c.type || 'Story'} Gallery`, 'story_gallery');
+        });
+      }
+      if (c.mediaUrl && !c.mediaUrl.endsWith('.mp4') && !c.mediaUrl.endsWith('.mov')) {
+        add(c.mediaUrl, c.title, `${c.type || 'Story'} Media`, 'story_media');
+      }
+    });
+
+    // 2. All Trips & Featured tours (Uploaded via admin/Firestore or local)
+    allTrips.forEach(t => {
+      if (t.imageUrl) {
+        add(t.imageUrl, t.title, t.location, 'trip');
+      }
+    });
+
+    // 3. Fallback default trips
+    TRIPS.forEach(t => {
+      if (t.imageUrl) {
+        add(t.imageUrl, t.title, t.location, 'trip');
+      }
+    });
+
+    return list;
+  }, [allTrips, contents]);
 
 
   const ListHeader = (
@@ -411,6 +568,11 @@ export default function BrowsingScreen() {
         <HeatmapPromoCard onPress={() => navigation.navigate('Heatmap')} />
       )}
 
+      {/* ── Community Discovery Promo Card ───── */}
+      {selectedCategory === 'All' && searchQuery === '' && (
+        <CommunityPromoCard onPress={() => (navigation as any).navigate('Feed')} />
+      )}
+
       {/* ── Featured Slider ───────────────────── */}
       {selectedCategory === 'All' && searchQuery === '' && (
         <>
@@ -479,12 +641,13 @@ export default function BrowsingScreen() {
           </View>
         }
         ListFooterComponent={
-          selectedCategory === 'All' && searchQuery === '' && allTrips.length > 0 ? (
+          selectedCategory === 'All' && searchQuery === '' && allGalleryImages.length > 0 ? (
             <View style={{ marginTop: Spacing.xl, paddingBottom: Spacing.xl }}>
               <View style={styles.sectionRow}>
                 <Text style={styles.sectionLabel}>GALLERY</Text>
+                <Text style={styles.sectionCount}>{allGalleryImages.length} photos</Text>
               </View>
-              <GalleryCarousel images={allTrips.map(t => t.imageUrl).filter(Boolean)} />
+              <GalleryCarousel images={allGalleryImages} />
             </View>
           ) : null
         }

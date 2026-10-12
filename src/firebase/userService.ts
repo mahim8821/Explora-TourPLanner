@@ -69,7 +69,14 @@ export async function updateUserProfile(
   uid: string,
   updates: Partial<Omit<UserProfile, 'uid' | 'createdAt' | 'role'>>
 ): Promise<void> {
-  await updateDoc(doc(db, 'users', uid), updates as any);
+  const ref = doc(db, 'users', uid);
+  const cleaned: Record<string, any> = {};
+  for (const [key, val] of Object.entries(updates)) {
+    if (val !== undefined) {
+      cleaned[key] = val;
+    }
+  }
+  await setDoc(ref, cleaned, { merge: true });
 }
 
 /** Admin: fetch all users */

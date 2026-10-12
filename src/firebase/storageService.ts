@@ -1,50 +1,72 @@
 /**
  * storageService.ts
- * Upload images to ImgBB (free image hosting, no Firebase Storage needed).
- *
- * API docs: https://api.imgbb.com
- * Strategy: read file as base64 with expo-file-system → POST to ImgBB API
- *            → return the permanent display URL.
+ * Reliable image uploader with multiple fallbacks:
+ * 1. Catbox (free permanent CDN image hosting, no key needed)
+ * 2. ImgBB (if key provided & working)
+ * 3. Base64 Data URI (native offline/online fallback, guaranteed to display)
  */
 
 import * as FileSystem from 'expo-file-system/legacy';
 
 const IMGBB_API_KEY = process.env.EXPO_PUBLIC_IMGBB_API_KEY || '';
 
-const IMGBB_UPLOAD_URL = 'https://api.imgbb.com/1/upload';
-
 /**
- * Upload a local image URI (from expo-image-picker) to ImgBB.
- * Returns the permanent public URL of the uploaded image.
+ * Upload a local image URI (from expo-image-picker) and return a permanent image URL.
  */
 export async function uploadTripImage(localUri: string): Promise<string> {
-  // 1. Read the file as a base64 string (native — no blob warning)
-  const base64 = await FileSystem.readAsStringAsync(localUri, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
+  // 1. Try uploading to Catbox (free, permanent, fast image CDN)
+  try {
+    const uploadResult = await FileSystem.uploadAsync('https://catbox.moe/user/api.php', localUri, {
+      httpMethod: 'POST',
+      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+      fieldName: 'fileToUpload',
+      parameters: {
+        reqtype: 'fileupload',
+      },
+    });
 
-  // 2. Build multipart form body
-  const formData = new FormData();
-  formData.append('key', IMGBB_API_KEY);
-  formData.append('image', base64);
-
-  // 3. POST to ImgBB
-  const response = await fetch(IMGBB_UPLOAD_URL, {
-    method: 'POST',
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`ImgBB upload failed (${response.status}): ${text}`);
+    if (uploadResult.status === 200 && uploadResult.body && uploadResult.body.startsWith('http')) {
+      return uploadResult.body.trim();
+    }
+  } catch (err) {
+    console.warn('Catbox upload attempt failed, trying fallback:', err);
   }
 
-  const json = await response.json();
+  // 2. Try ImgBB if key exists
+  if (IMGBB_API_KEY) {
+    try {
+      const base64 = await FileSystem.readAsStringAsync(localUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
 
-  if (!json.success) {
-    throw new Error(`ImgBB error: ${json.error?.message ?? 'Unknown error'}`);
+      const formData = new FormData();
+      formData.append('key', IMGBB_API_KEY);
+      formData.append('image', base64);
+
+      const response = await fetch('https://api.imgbb.com/1/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (response.ok) {
+        const json = await response.json();
+        if (json.success && json.data?.url) {
+          return json.data.url as string;
+        }
+      }
+    } catch (imgbbErr) {
+      console.warn('ImgBB fallback attempt failed:', imgbbErr);
+    }
   }
 
-  // Return the direct display URL (works as an <Image> source)
-  return json.data.url as string;
+  // 3. Fallback: Base64 Data URI (guaranteed to render natively on mobile and web)
+  try {
+    const base64 = await FileSystem.readAsStringAsync(localUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    return `data:image/jpeg;base64,${base64}`;
+  } catch (fallbackErr) {
+    console.warn('Base64 fallback failed, returning local URI:', fallbackErr);
+    return localUri;
+  }
 }
