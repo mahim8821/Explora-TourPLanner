@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,10 +12,12 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   updateProfile,
+  sendPasswordResetEmail,
   GoogleAuthProvider,
   signInWithCredential,
 } from 'firebase/auth';
@@ -37,13 +39,21 @@ const ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || ''
 
 export default function LoginScreen() {
   const { colors, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
   const [isSignUp, setIsSignUp] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // Form Fields
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [validationError, setValidationError] = useState('');
 
   const [request, response, promptAsync] = Google.useAuthRequest({
     webClientId: WEB_CLIENT_ID,
@@ -54,148 +64,314 @@ export default function LoginScreen() {
   useEffect(() => {
     if (response?.type === 'success') {
       const { id_token } = response.params;
-      if (!id_token) { Alert.alert('Google Sign-In Failed', 'No ID token received.'); return; }
+      if (!id_token) {
+        Alert.alert('Google Sign-In Failed', 'No ID token received.');
+        return;
+      }
       setIsGoogleLoading(true);
       const credential = GoogleAuthProvider.credential(id_token);
-      signInWithCredential(auth, credential).catch((err: any) => {
-        Alert.alert('Google Sign-In Failed', err.message);
-        setIsGoogleLoading(false);
-      });
+      signInWithCredential(auth, credential)
+        .catch((err: any) => {
+          Alert.alert('Google Sign-In Failed', err.message);
+          setIsGoogleLoading(false);
+        });
     } else if (response?.type === 'error') {
       Alert.alert('Google Sign-In Error', response.error?.message ?? 'Unknown error');
     }
   }, [response]);
 
+  // Clear validation when switching tabs
+  const handleToggleMode = (signUp: boolean) => {
+    setIsSignUp(signUp);
+    setValidationError('');
+  };
+
   const handleAuth = async () => {
-    if (!email || !password || (isSignUp && !name)) {
-      Alert.alert('Missing Fields', 'Please fill in all fields.');
+    setValidationError('');
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedName = name.trim();
+
+    // Validation
+    if (!trimmedEmail) {
+      setValidationError('Please enter your email address.');
       return;
     }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      setValidationError('Please enter a valid email address.');
+      return;
+    }
+
+    if (!password) {
+      setValidationError('Please enter your password.');
+      return;
+    }
+
+    if (password.length < 6) {
+      setValidationError('Password must be at least 6 characters.');
+      return;
+    }
+
+    if (isSignUp) {
+      if (!trimmedName) {
+        setValidationError('Please enter your name.');
+        return;
+      }
+      if (password !== confirmPassword) {
+        setValidationError('Passwords do not match.');
+        return;
+      }
+    }
+
     setIsLoading(true);
     try {
       if (isSignUp) {
-        const { user } = await createUserWithEmailAndPassword(auth, email, password);
-        await updateProfile(user, { displayName: name });
+        const { user } = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
+        await updateProfile(user, { displayName: trimmedName });
       } else {
-        await signInWithEmailAndPassword(auth, email, password);
+        await signInWithEmailAndPassword(auth, trimmedEmail, password);
       }
     } catch (err: any) {
       setIsLoading(false);
-      Alert.alert('Error', err.message);
+      let message = err.message || 'Authentication failed.';
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+        message = 'Invalid email or password. Please verify your credentials.';
+      } else if (err.code === 'auth/email-already-in-use') {
+        message = 'An account with this email already exists. Try signing in.';
+      }
+      setValidationError(message);
     }
+  };
+
+  const handleForgotPassword = () => {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      Alert.alert('Password Reset', 'Please enter your registered email address above first.');
+      return;
+    }
+    Alert.alert(
+      'Reset Password',
+      `Send a password reset link to ${trimmedEmail}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Send Link',
+          onPress: async () => {
+            try {
+              await sendPasswordResetEmail(auth, trimmedEmail);
+              Alert.alert('Email Sent', 'Check your inbox for password reset instructions.');
+            } catch (err: any) {
+              Alert.alert('Error', err.message);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const busy = isLoading || isGoogleLoading;
 
   return (
     <KeyboardAvoidingView
-      style={[styles.root, { backgroundColor: colors.background }]}
+      style={styles.root}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
 
       <ScrollView
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[
+          styles.scroll,
+          {
+            paddingTop: Math.max(insets.top, 24) + 16,
+            paddingBottom: Math.max(insets.bottom, 24) + 24,
+          }
+        ]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Logo / Hero */}
+        {/* ── Brand Hero ── */}
         <View style={styles.hero}>
-          <Text style={[styles.appName, { color: colors.text }]}>Explora</Text>
-          <Text style={[styles.tagline, { color: colors.textMuted }]}>
-            {isSignUp ? 'Create your account' : 'Welcome back'}
+          <View style={styles.logoBadge}>
+            <Text style={styles.logoEmoji}>🧭</Text>
+          </View>
+          <Text style={styles.appName}>Explora</Text>
+          <Text style={styles.tagline}>
+            Discover Hidden Bangladesh • Tours & Community
           </Text>
         </View>
 
-        {/* Form */}
+        {/* ── Mode Segment Tabs ── */}
+        <View style={styles.segmentContainer}>
+          <TouchableOpacity
+            style={[styles.segmentBtn, !isSignUp && styles.segmentBtnActive]}
+            onPress={() => handleToggleMode(false)}
+            activeOpacity={0.8}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: !isSignUp }}
+          >
+            <Text style={[styles.segmentText, !isSignUp && styles.segmentTextActive]}>
+              Sign In
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.segmentBtn, isSignUp && styles.segmentBtnActive]}
+            onPress={() => handleToggleMode(true)}
+            activeOpacity={0.8}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: isSignUp }}
+          >
+            <Text style={[styles.segmentText, isSignUp && styles.segmentTextActive]}>
+              Create Account
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* ── Validation Banner ── */}
+        {validationError ? (
+          <View style={styles.errorCard}>
+            <Text style={styles.errorIcon}>⚠️</Text>
+            <Text style={styles.errorText}>{validationError}</Text>
+          </View>
+        ) : null}
+
+        {/* ── Form Inputs ── */}
         <View style={styles.form}>
           {isSignUp && (
             <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.textSecondary }]}>Name</Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
-                placeholder="Alex Johnson"
-                placeholderTextColor={colors.textMuted}
-                value={name}
-                onChangeText={setName}
-                autoCapitalize="words"
-              />
+              <Text style={styles.label}>Full Name</Text>
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. Alex Rahman"
+                  placeholderTextColor={colors.textMuted}
+                  value={name}
+                  onChangeText={setName}
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                />
+              </View>
             </View>
           )}
 
           <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>Email</Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
-              placeholder="alex@example.com"
-              placeholderTextColor={colors.textMuted}
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              autoCorrect={false}
-            />
+            <Text style={styles.label}>Email Address</Text>
+            <View style={styles.inputWrapper}>
+              <TextInput
+                style={styles.input}
+                placeholder="you@domain.com"
+                placeholderTextColor={colors.textMuted}
+                value={email}
+                onChangeText={setEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                autoCorrect={false}
+              />
+            </View>
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: colors.textSecondary }]}>Password</Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
-              placeholder="••••••••"
-              placeholderTextColor={colors.textMuted}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-            />
+            <View style={styles.labelRow}>
+              <Text style={styles.label}>Password</Text>
+
+            </View>
+            <View style={styles.inputWrapper}>
+              <TextInput
+                style={styles.input}
+                placeholder="At least 6 characters"
+                placeholderTextColor={colors.textMuted}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+              />
+              <TouchableOpacity
+                onPress={() => setShowPassword(!showPassword)}
+                style={styles.eyeBtn}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={styles.eyeTxt}>{showPassword ? 'Hide' : 'Show'}</Text>
+              </TouchableOpacity>
+
+            </View>
+            {!isSignUp && (
+              <TouchableOpacity onPress={handleForgotPassword} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={styles.forgotTxt}>Forgot?</Text>
+              </TouchableOpacity>
+            )}
           </View>
+
+          {isSignUp && (
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Confirm Password</Text>
+              <View style={styles.inputWrapper}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Re-enter password"
+                  placeholderTextColor={colors.textMuted}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry={!showConfirmPassword}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                  style={styles.eyeBtn}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={styles.eyeTxt}>{showConfirmPassword ? 'Hide' : 'Show'}</Text>
+                </TouchableOpacity>
+                {!isSignUp && (
+                  <TouchableOpacity onPress={handleForgotPassword} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Text style={styles.forgotTxt}>Forgot?</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          )}
         </View>
 
-        {/* Actions */}
+        {/* ── Actions ── */}
         <View style={styles.actions}>
-          {/* Primary Button */}
+          {/* Primary Submit */}
           <TouchableOpacity
-            style={[styles.primaryBtn, { backgroundColor: colors.primary }, busy && styles.btnDisabled]}
+            style={[styles.primaryBtn, busy && styles.btnDisabled]}
             onPress={handleAuth}
             disabled={busy}
             activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel={isSignUp ? 'Create Explora Account' : 'Sign in to Explora'}
           >
-            {isLoading
-              ? <ActivityIndicator color="#fff" size="small" />
-              : <Text style={styles.primaryBtnTxt}>{isSignUp ? 'Create Account' : 'Sign In'}</Text>
-            }
+            {isLoading ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={styles.primaryBtnTxt}>
+                {isSignUp ? 'Create Account →' : 'Sign In →'}
+              </Text>
+            )}
           </TouchableOpacity>
 
           {/* Divider */}
           <View style={styles.divider}>
-            <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-            <Text style={[styles.dividerTxt, { color: colors.textMuted }]}>or</Text>
-            <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerTxt}>or continue with</Text>
+            <View style={styles.dividerLine} />
           </View>
 
           {/* Google Button */}
           <TouchableOpacity
-            style={[styles.googleBtn, { backgroundColor: colors.surface, borderColor: colors.border }, (busy || !request) && styles.btnDisabled]}
+            style={[styles.googleBtn, (busy || !request) && styles.btnDisabled]}
             onPress={() => promptAsync()}
             disabled={!request || busy}
             activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Sign in with Google"
           >
-            {isGoogleLoading
-              ? <ActivityIndicator color={colors.text} size="small" />
-              : <>
+            {isGoogleLoading ? (
+              <ActivityIndicator color={colors.text} size="small" />
+            ) : (
+              <>
                 <Text style={styles.googleG}>G</Text>
-                <Text style={[styles.googleTxt, { color: colors.text }]}>Continue with Google</Text>
+                <Text style={styles.googleTxt}>Continue with Google</Text>
               </>
-            }
-          </TouchableOpacity>
-
-          {/* Toggle */}
-          <TouchableOpacity style={styles.toggleBtn} onPress={() => setIsSignUp(!isSignUp)}>
-            <Text style={[styles.toggleTxt, { color: colors.textMuted }]}>
-              {isSignUp ? 'Already have an account? ' : "Don't have an account? "}
-              <Text style={{ color: colors.primary, fontWeight: Typography.weight.semiBold }}>
-                {isSignUp ? 'Sign In' : 'Sign Up'}
-              </Text>
-            </Text>
+            )}
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -203,55 +379,232 @@ export default function LoginScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1 },
-  scroll: { flexGrow: 1, paddingHorizontal: Spacing['2xl'], paddingBottom: 48 },
+function makeStyles(c: AppColors, isDark: boolean) {
+  return StyleSheet.create({
+    root: {
+      flex: 1,
+      backgroundColor: c.background,
+    },
+    scroll: {
+      flexGrow: 1,
+      paddingHorizontal: Spacing.xl,
+    },
+    hero: {
+      alignItems: 'center',
+      marginBottom: Spacing.xl,
+    },
+    logoBadge: {
+      width: 68,
+      height: 68,
+      borderRadius: Radius['2xl'],
+      backgroundColor: c.surfaceElevated,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: Spacing.md,
+      borderWidth: 1,
+      borderColor: c.border,
+      ...Platform.select({
+        ios: {
+          shadowColor: c.primary,
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.18,
+          shadowRadius: 12,
+        },
+        android: {
+          elevation: 4,
+        },
+      }),
+    },
+    logoEmoji: {
+      fontSize: 34,
+    },
+    appName: {
+      fontSize: 32,
+      fontWeight: Typography.weight.heavy,
+      color: c.text,
+      letterSpacing: -0.5,
+    },
+    tagline: {
+      fontSize: Typography.size.sm,
+      color: c.textMuted,
+      marginTop: 4,
+      textAlign: 'center',
+    },
 
-  // Hero
-  hero: { alignItems: 'center', paddingTop: 80, paddingBottom: Spacing['2xl'] },
-  logoEmoji: { fontSize: 52, marginBottom: Spacing.md },
-  appName: { fontSize: 36, fontWeight: Typography.weight.heavy, letterSpacing: -1 },
-  tagline: { fontSize: Typography.size.base, marginTop: Spacing.xs },
+    segmentContainer: {
+      flexDirection: 'row',
+      backgroundColor: c.surface,
+      borderRadius: Radius.full,
+      padding: 4,
+      marginBottom: Spacing.lg,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    segmentBtn: {
+      flex: 1,
+      paddingVertical: Spacing.sm + 2,
+      alignItems: 'center',
+      borderRadius: Radius.full,
+    },
+    segmentBtnActive: {
+      backgroundColor: c.primary,
+    },
+    segmentText: {
+      fontSize: Typography.size.sm,
+      fontWeight: Typography.weight.semiBold,
+      color: c.textSecondary,
+    },
+    segmentTextActive: {
+      color: c.textInverse,
+      fontWeight: Typography.weight.bold,
+    },
 
-  // Form
-  form: { gap: Spacing.lg, marginBottom: Spacing.xl },
-  inputGroup: { gap: Spacing.xs },
-  label: { fontSize: Typography.size.sm, fontWeight: Typography.weight.medium, paddingLeft: 2 },
-  input: {
-    borderWidth: 1,
-    borderRadius: Radius.lg,
-    paddingHorizontal: Spacing.base,
-    paddingVertical: Spacing.md,
-    fontSize: Typography.size.base,
-  },
+    errorCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: c.error + '15',
+      borderRadius: Radius.lg,
+      paddingHorizontal: Spacing.md,
+      paddingVertical: Spacing.sm + 2,
+      marginBottom: Spacing.md,
+      borderWidth: 1,
+      borderColor: c.error + '40',
+      gap: Spacing.sm,
+    },
+    errorIcon: {
+      fontSize: 16,
+    },
+    errorText: {
+      flex: 1,
+      fontSize: Typography.size.xs,
+      fontWeight: Typography.weight.semiBold,
+      color: c.error,
+    },
 
-  // Actions
-  actions: { gap: Spacing.base },
-  primaryBtn: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: Radius.xl,
-    paddingVertical: Spacing.base + 2,
-  },
-  btnDisabled: { opacity: 0.5 },
-  primaryBtnTxt: { fontSize: Typography.size.base, fontWeight: Typography.weight.semiBold, color: '#fff' },
+    form: {
+      gap: Spacing.md,
+      marginBottom: Spacing.lg,
+    },
+    inputGroup: {
+      gap: 6,
+    },
+    labelRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    label: {
+      fontSize: Typography.size.xs,
+      fontWeight: Typography.weight.bold,
+      color: c.textSecondary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+      paddingLeft: 2,
+    },
+    forgotTxt: {
+      fontSize: Typography.size.s,
+      fontWeight: Typography.weight.semiBold,
+      color: c.primary,
+      textAlign: 'center'
+    },
+    inputWrapper: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: c.surface,
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: Radius.xl,
+      paddingHorizontal: Spacing.md,
+    },
+    inputIcon: {
+      fontSize: 16,
+      marginRight: Spacing.sm,
+      opacity: 0.7,
+    },
+    input: {
+      flex: 1,
+      paddingVertical: Platform.OS === 'ios' ? Spacing.md : Spacing.sm + 2,
+      fontSize: Typography.size.base,
+      color: c.text,
+    },
+    eyeBtn: {
+      paddingHorizontal: Spacing.xs,
+      paddingVertical: Spacing.xs,
+    },
+    eyeTxt: {
+      fontSize: Typography.size.xs,
+      fontWeight: Typography.weight.bold,
+      color: c.primary,
+    },
 
-  divider: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
-  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
-  dividerTxt: { fontSize: Typography.size.sm },
+    actions: {
+      gap: Spacing.md,
+    },
+    primaryBtn: {
+      backgroundColor: c.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: Radius.xl,
+      paddingVertical: Spacing.md + 2,
+      ...Platform.select({
+        ios: {
+          shadowColor: c.primary,
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.3,
+          shadowRadius: 8,
+        },
+        android: {
+          elevation: 4,
+        },
+      }),
+    },
+    btnDisabled: {
+      opacity: 0.6,
+    },
+    primaryBtnTxt: {
+      fontSize: Typography.size.base,
+      fontWeight: Typography.weight.bold,
+      color: c.textInverse,
+    },
 
-  googleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderRadius: Radius.xl,
-    paddingVertical: Spacing.base + 2,
-    gap: Spacing.sm,
-  },
-  googleG: { fontSize: 18, fontWeight: '800', color: '#4285F4' },
-  googleTxt: { fontSize: Typography.size.base, fontWeight: Typography.weight.medium },
+    divider: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.md,
+      marginVertical: 4,
+    },
+    dividerLine: {
+      flex: 1,
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: c.border,
+    },
+    dividerTxt: {
+      fontSize: Typography.size.xs,
+      color: c.textMuted,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
 
-  toggleBtn: { alignItems: 'center', paddingVertical: Spacing.sm },
-  toggleTxt: { fontSize: Typography.size.sm },
-});
+    googleBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: c.surface,
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: Radius.xl,
+      paddingVertical: Spacing.md,
+      gap: Spacing.sm,
+    },
+    googleG: {
+      fontSize: 18,
+      fontWeight: '800',
+      color: '#4285F4',
+    },
+    googleTxt: {
+      fontSize: Typography.size.sm,
+      fontWeight: Typography.weight.bold,
+      color: c.text,
+    },
+  });
+}

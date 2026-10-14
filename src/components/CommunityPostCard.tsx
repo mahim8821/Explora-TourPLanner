@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import Svg, { Path, Circle, Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 import { CommunityPost } from '../firebase/communityService';
+import { submitModerationReport, ReportReason } from '../firebase/moderationService';
 import { useTheme } from '../theme/ThemeContext';
 import { Radius, Spacing } from '../theme/spacing';
 import { useAppDispatch, useAppSelector } from '../store';
@@ -123,6 +124,7 @@ export default function CommunityPostCard({
   const { colors, isDark } = useTheme();
   const dispatch = useAppDispatch();
   const bookmarks = useAppSelector(s => s.bookmarks.items);
+  const currentUser = useAppSelector(s => s.auth.user);
   const [activeGuide, setActiveGuide] = useState<'tips' | 'route' | null>(null);
 
   const isLiked = currentUserId ? post.likes.includes(currentUserId) : false;
@@ -161,6 +163,58 @@ export default function CommunityPostCard({
     }
   };
 
+  const submitReport = async (reason: ReportReason, details: string) => {
+    if (!currentUserId) {
+      Alert.alert('Sign In Required', 'Please log in to report community posts.');
+      return;
+    }
+    try {
+      await submitModerationReport({
+        targetType: 'post',
+        targetId: post.id,
+        targetTitle: post.title,
+        targetAuthorName: post.userName,
+        targetSnippet: post.experience || post.review || post.location,
+        reporterId: currentUserId,
+        reporterName: currentUser?.displayName || 'Community Member',
+        reason,
+        details,
+      });
+      Alert.alert(
+        'Report Submitted',
+        'Thank you for reporting. Our moderation team has received the alert and will review it.'
+      );
+    } catch (err: any) {
+      Alert.alert('Submission Error', err?.message || 'Unable to submit report.');
+    }
+  };
+
+  const handleReportPost = () => {
+    Alert.alert(
+      'Report Post',
+      'Select a reason for reporting this post to moderators:',
+      [
+        {
+          text: 'Spam or Advertising',
+          onPress: () => submitReport('spam', 'Spam / promotional content'),
+        },
+        {
+          text: 'Inappropriate or Offensive',
+          onPress: () => submitReport('inappropriate', 'Inappropriate or offensive imagery/text'),
+        },
+        {
+          text: 'Misleading Info or Scam',
+          onPress: () => submitReport('misleading', 'Misleading location, price, or scam info'),
+        },
+        {
+          text: 'Harassment',
+          onPress: () => submitReport('harassment', 'Hate speech or personal harassment'),
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
+
   const handleMorePress = () => {
     const isOwner = currentUserId === post.userId;
     Alert.alert(
@@ -168,6 +222,15 @@ export default function CommunityPostCard({
       `${post.location} • Posted by ${post.userName}`,
       [
         { text: 'Share Place ↗', onPress: handleShare },
+        ...(!isOwner
+          ? [
+            {
+              text: 'Report Post 🚩',
+              style: 'destructive' as const,
+              onPress: handleReportPost,
+            },
+          ]
+          : []),
         ...(isOwner && onDeletePress
           ? [
             {

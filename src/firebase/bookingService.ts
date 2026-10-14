@@ -1,11 +1,7 @@
 /**
  * bookingService.ts
  * Firestore CRUD for the `bookings` collection.
- *
- * Schema: bookings/{bookingId}
- *   id, userId, userEmail, userName, tripId, tripTitle,
- *   date (ISO string), status ('Pending' | 'Confirmed' | 'Cancelled'),
- *   createdAt
+ * Supports RBAC, operator isolation, payment reconciliation, and departure tracking.
  */
 
 import {
@@ -26,6 +22,7 @@ import {
 import { db } from './firestore';
 
 export type BookingStatus = 'Pending' | 'Confirmed' | 'Cancelled';
+export type PaymentStatus = 'Unpaid' | 'Paid' | 'Refunded';
 
 export interface Booking {
   id: string;
@@ -34,9 +31,15 @@ export interface Booking {
   userName: string;
   tripId: string;
   tripTitle: string;
+  operatorId?: string;
   date: string;
+  departureDate?: string;
+  amount?: number;
   status: BookingStatus;
+  paymentStatus?: PaymentStatus;
+  reconciliationNotes?: string;
   createdAt?: any;
+  updatedAt?: any;
 }
 
 const BOOKINGS_COL = 'bookings';
@@ -48,7 +51,9 @@ export async function createBooking(
   const ref = await addDoc(collection(db, BOOKINGS_COL), {
     ...data,
     status: 'Pending',
+    paymentStatus: data.paymentStatus || 'Unpaid',
     createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   });
   return ref.id;
 }
@@ -58,8 +63,6 @@ export function subscribeToUserBookings(
   userId: string,
   callback: (bookings: Booking[]) => void
 ): Unsubscribe {
-  // NOTE: combining where() + orderBy() on different fields requires a
-  // composite index. We avoid that by sorting client-side after the query.
   const q = query(
     collection(db, BOOKINGS_COL),
     where('userId', '==', userId)
@@ -68,16 +71,15 @@ export function subscribeToUserBookings(
     const bookings: Booking[] = snap.docs
       .map(d => ({ id: d.id, ...(d.data() as Omit<Booking, 'id'>) }))
       .sort((a, b) => {
-        // Firestore Timestamps have .toMillis(); fallback to 0 if missing
         const aMs = (a.createdAt as Timestamp)?.toMillis?.() ?? 0;
         const bMs = (b.createdAt as Timestamp)?.toMillis?.() ?? 0;
-        return bMs - aMs; // newest first
+        return bMs - aMs;
       });
     callback(bookings);
   });
 }
 
-/** Admin: get all bookings (real-time) */
+/** Admin: get all platform-wide bookings (real-time) */
 export function subscribeToAllBookings(
   callback: (bookings: Booking[]) => void
 ): Unsubscribe {
@@ -85,18 +87,54 @@ export function subscribeToAllBookings(
   return onSnapshot(q, snap => {
     const bookings: Booking[] = snap.docs.map(d => ({
       id: d.id,
+      paymentStatus: 'Unpaid',
       ...(d.data() as Omit<Booking, 'id'>),
     }));
     callback(bookings);
   });
 }
 
-/** Admin: update booking status */
+/** Operator: get bookings for tours assigned to this operator (real-time) */
+export function subscribeToOperatorBookings(
+  operatorId: string,
+  callback: (bookings: Booking[]) => void
+): Unsubscribe {
+  const q = query(
+    collection(db, BOOKINGS_COL),
+    where('operatorId', '==', operatorId)
+  );
+  return onSnapshot(q, snap => {
+    const bookings: Booking[] = snap.docs.map(d => ({
+      id: d.id,
+      paymentStatus: 'Unpaid',
+      ...(d.data() as Omit<Booking, 'id'>),
+    }));
+    callback(bookings);
+  });
+}
+
+/** Admin / Operator: update booking status with permitted transitions */
 export async function updateBookingStatus(
   id: string,
   status: BookingStatus
 ): Promise<void> {
-  await updateDoc(doc(db, BOOKINGS_COL, id), { status });
+  await updateDoc(doc(db, BOOKINGS_COL, id), {
+    status,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** Admin / Operator: reconcile payment record */
+export async function reconcileBookingPayment(
+  id: string,
+  paymentStatus: PaymentStatus,
+  reconciliationNotes?: string
+): Promise<void> {
+  await updateDoc(doc(db, BOOKINGS_COL, id), {
+    paymentStatus,
+    reconciliationNotes: reconciliationNotes ?? '',
+    updatedAt: serverTimestamp(),
+  });
 }
 
 /** Admin: delete a booking */

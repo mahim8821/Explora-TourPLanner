@@ -179,10 +179,24 @@ export function subscribeToCommunityPosts(
       if (snapshot.empty) {
         callback(INITIAL_SEED_POSTS);
       } else {
-        const posts = snapshot.docs.map(d => ({
-          id: d.id,
-          ...(d.data() as Omit<CommunityPost, 'id'>),
-        }));
+        const posts = snapshot.docs.map(d => {
+          const data = d.data() as Omit<CommunityPost, 'id'>;
+          let comments = data.comments;
+          if (Array.isArray(comments)) {
+            const seen = new Set<string>();
+            comments = comments.filter(c => {
+              if (!c || !c.id) return false;
+              if (seen.has(c.id)) return false;
+              seen.add(c.id);
+              return true;
+            });
+          }
+          return {
+            id: d.id,
+            ...data,
+            comments,
+          };
+        });
         callback(posts);
       }
     },
@@ -241,7 +255,7 @@ export async function addCommentToPost(
 ): Promise<CommunityComment> {
   const newComment: CommunityComment = {
     ...comment,
-    id: `cm_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+    id: `cm_${Date.now()}_${Math.random().toString(36).substring(2, 9)}_${Math.floor(Math.random() * 10000)}`,
     createdAt: Date.now(),
   };
 

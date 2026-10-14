@@ -37,8 +37,17 @@ export default function CommentsModal({
   const [commentText, setCommentText] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // Local list of comments for instant responsive updates
-  const commentsList: CommunityComment[] = post?.comments || [];
+  // Deduplicated list of comments to avoid any duplicate keys across updates
+  const commentsList = React.useMemo(() => {
+    const raw = post?.comments || [];
+    const seen = new Set<string>();
+    return raw.filter(c => {
+      if (!c || !c.id) return false;
+      if (seen.has(c.id)) return false;
+      seen.add(c.id);
+      return true;
+    });
+  }, [post?.comments]);
 
   const handleSendComment = async () => {
     if (!commentText.trim() || !post) return;
@@ -103,7 +112,7 @@ export default function CommentsModal({
         {/* Comments List */}
         <FlatList
           data={commentsList}
-          keyExtractor={item => item.id}
+          keyExtractor={(item, index) => item.id || `cm_${index}`}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>

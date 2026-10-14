@@ -1,11 +1,14 @@
 import {createSlice, PayloadAction} from '@reduxjs/toolkit';
 
+export type UserRole = 'traveler' | 'operator' | 'moderator' | 'admin' | 'user';
+
 export interface AuthUser {
   uid: string;
   displayName: string | null;
   email: string | null;
   photoURL: string | null;
-  role: 'user' | 'admin';
+  role: UserRole;
+  customClaims?: Record<string, any>;
 }
 
 interface AuthState {
@@ -42,7 +45,7 @@ const authSlice = createSlice({
       state.status = 'unauthenticated';
       state.error = action.payload;
     },
-    setRole(state, action: PayloadAction<'user' | 'admin'>) {
+    setRole(state, action: PayloadAction<UserRole>) {
       if (state.user) {
         state.user.role = action.payload;
       }

@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, FlatList, StatusBar,
-  ScrollView, TouchableOpacity, Image, TextInput, Animated, ImageBackground, Dimensions
+  ScrollView, TouchableOpacity, Image, TextInput, Animated, ImageBackground, Dimensions, ActivityIndicator, Platform
 } from 'react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -21,6 +21,8 @@ import { Spacing, Radius } from '../theme/spacing';
 import { useAppSelector } from '../store';
 import { subscribeToTrips, FirestoreTrip } from '../firebase/tripService';
 import { subscribeToContent, AppContent } from '../firebase/contentService';
+import { fetchLiveWeather, getCachedWeather, WeatherData } from '../services/weatherService';
+import WeatherModal from '../components/WeatherModal';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -90,77 +92,77 @@ function ExploraLogo({ color }: { color: string }) {
 // ─── Heatmap Promo Card ──────────────────────────────────────────────────────
 
 // Some pre-lit districts for visual demo
-const DEMO_DISTRICTS = ['Dhaka', 'Chattogram', 'Sylhet', 'Cox\'s Bazar', 'Rangamati', 'Khulna', 'Barishal'];
+// const DEMO_DISTRICTS = ['Dhaka', 'Chattogram', 'Sylhet', 'Cox\'s Bazar', 'Rangamati', 'Khulna', 'Barishal'];
 
-function HeatmapPromoCard({ onPress }: { onPress: () => void }) {
-  const { colors, isDark } = useTheme();
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const glowAnim = useRef(new Animated.Value(0)).current;
+// function HeatmapPromoCard({ onPress }: { onPress: () => void }) {
+//   const { colors, isDark } = useTheme();
+//   const pulseAnim = useRef(new Animated.Value(1)).current;
+//   const glowAnim = useRef(new Animated.Value(0)).current;
 
-  const styles = useMemo(() => getPromoStyles(colors, isDark), [colors, isDark]);
+//   const styles = useMemo(() => getPromoStyles(colors, isDark), [colors, isDark]);
 
-  useEffect(() => {
-    // Subtle pulse on the CTA button
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.04, duration: 900, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1.00, duration: 900, useNativeDriver: true }),
-      ])
-    ).start();
-    // Glow fade-in
-    Animated.timing(glowAnim, { toValue: 1, duration: 600, useNativeDriver: true }).start();
-  }, []);
+//   useEffect(() => {
+//     // Subtle pulse on the CTA button
+//     Animated.loop(
+//       Animated.sequence([
+//         Animated.timing(pulseAnim, { toValue: 1.04, duration: 900, useNativeDriver: true }),
+//         Animated.timing(pulseAnim, { toValue: 1.00, duration: 900, useNativeDriver: true }),
+//       ])
+//     ).start();
+//     // Glow fade-in
+//     Animated.timing(glowAnim, { toValue: 1, duration: 600, useNativeDriver: true }).start();
+//   }, []);
 
-  return (
-    <Animated.View style={[styles.card, { opacity: glowAnim }]}>
-      {/* ── Background layers ─────────────────────────────────────────────── */}
-      <View style={styles.bgDark} />
-      <View style={styles.bgAccentTR} />
-      <View style={styles.bgAccentBL} />
+//   return (
+//     <Animated.View style={[styles.card, { opacity: glowAnim }]}>
+//       {/* ── Background layers ─────────────────────────────────────────────── */}
+//       <View style={styles.bgDark} />
+//       <View style={styles.bgAccentTR} />
+//       <View style={styles.bgAccentBL} />
 
-      {/* ── Content ───────────────────────────────────────────────────────── */}
-      <View style={styles.row}>
+//       {/* ── Content ───────────────────────────────────────────────────────── */}
+//       <View style={styles.row}>
 
-        {/* Left: map preview ───────────────────────────────────── */}
-        <View style={styles.mapPreviewWrap}>
-          <BangladeshMap
-            width={115}
-            height={145}
-            selectedDistricts={DEMO_DISTRICTS}
-            fillColor={colors.surfaceElevated}
-            selectedColor={colors.primary}
-            strokeColor={colors.background}
-            strokeWidth={0.8}
-          />
-          {/* Floating badge on map */}
-          <View style={styles.mapBadge}>
-            <Text style={styles.mapBadgeText}>64 Districts</Text>
-          </View>
-        </View>
+//         {/* Left: map preview ───────────────────────────────────── */}
+//         <View style={styles.mapPreviewWrap}>
+//           <BangladeshMap
+//             width={115}
+//             height={145}
+//             selectedDistricts={DEMO_DISTRICTS}
+//             fillColor={colors.surfaceElevated}
+//             selectedColor={colors.primary}
+//             strokeColor={colors.background}
+//             strokeWidth={0.8}
+//           />
+//           {/* Floating badge on map */}
+//           <View style={styles.mapBadge}>
+//             <Text style={styles.mapBadgeText}>64 Districts</Text>
+//           </View>
+//         </View>
 
-        {/* Right: text + features ──────────────────────────────── */}
-        <View style={styles.textCol}>
-          {/* NEW badge */}
-          <View style={styles.newBadge}>
-            <Text style={styles.newBadgeText}>✦ NEW FEATURE</Text>
-          </View>
+//         {/* Right: text + features ──────────────────────────────── */}
+//         <View style={styles.textCol}>
+//           {/* NEW badge */}
+//           <View style={styles.newBadge}>
+//             <Text style={styles.newBadgeText}>✦ NEW FEATURE</Text>
+//           </View>
 
-          <Text style={styles.title}>আমার দেখা{`\n`}বাংলাদেশ</Text>
-          <Text style={styles.subtitle}>Track your journey across all 64 districts</Text>
+//           <Text style={styles.title}>আমার দেখা{`\n`}বাংলাদেশ</Text>
+//           <Text style={styles.subtitle}>Track your journey across all 64 districts</Text>
 
 
-        </View>
-      </View>
+//         </View>
+//       </View>
 
-      {/* ── CTA Button ────────────────────────────────────────────────────── */}
-      <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-        <TouchableOpacity style={styles.cta} onPress={onPress} activeOpacity={0.8}>
-          <Text style={styles.ctaText}>Track your explored District  →</Text>
-        </TouchableOpacity>
-      </Animated.View>
-    </Animated.View>
-  );
-}
+//       {/* ── CTA Button ────────────────────────────────────────────────────── */}
+//       <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+//         <TouchableOpacity style={styles.cta} onPress={onPress} activeOpacity={0.8}>
+//           <Text style={styles.ctaText}>Track your explored District  →</Text>
+//         </TouchableOpacity>
+//       </Animated.View>
+//     </Animated.View>
+//   );
+// }
 
 function getPromoStyles(c: AppColors, isDark: boolean) {
   return StyleSheet.create({
@@ -268,111 +270,6 @@ function getPromoStyles(c: AppColors, isDark: boolean) {
   });
 }
 
-// ─── Community Feed Promo Card ───────────────────────────────────────────────
-
-function CommunityPromoCard({ onPress }: { onPress: () => void }) {
-  const { colors, isDark } = useTheme();
-
-  return (
-    <TouchableOpacity
-      activeOpacity={0.88}
-      onPress={onPress}
-      style={[
-        communityStyles.card,
-        {
-          backgroundColor: isDark ? colors.surface : colors.surfaceElevated,
-          borderColor: isDark ? 'rgba(236,229,211,0.12)' : 'rgba(0,0,0,0.08)',
-        },
-      ]}
-    >
-      <View style={communityStyles.topRow}>
-        <View style={[communityStyles.badge, { backgroundColor: colors.primaryLight }]}>
-          <Text style={[communityStyles.badgeText, { color: colors.primary }]}>✦ COMMUNITY FEED</Text>
-        </View>
-        <Text style={communityStyles.gemIcon}>💎</Text>
-      </View>
-
-      <Text style={[communityStyles.title, { color: colors.text }]}>
-        Unseen Places & Hidden Gems
-      </Text>
-      <Text style={[communityStyles.subtitle, { color: colors.textSecondary }]}>
-        Discovered a secret waterfall, hidden cave, or untouched trail? Share your photos, ratings & stories with fellow explorers!
-      </Text>
-
-      <View style={communityStyles.ctaRow}>
-        <Text style={[communityStyles.ctaText, { color: colors.primary }]}>
-          Open Community Feed →
-        </Text>
-        <View style={[communityStyles.ratingBadge, { backgroundColor: colors.primaryLight }]}>
-          <Text style={[communityStyles.ratingText, { color: colors.primary }]}>★ 4.9 Rated</Text>
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
-}
-
-const communityStyles = StyleSheet.create({
-  card: {
-    marginHorizontal: Spacing.xl,
-    marginBottom: Spacing.lg,
-    borderRadius: Radius.xl,
-    padding: Spacing.base,
-    borderWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  topRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 12,
-  },
-  badgeText: {
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.6,
-  },
-  gemIcon: {
-    fontSize: 16,
-  },
-  title: {
-    fontSize: 17,
-    fontWeight: '900',
-    marginBottom: 4,
-    letterSpacing: -0.2,
-  },
-  subtitle: {
-    fontSize: 12,
-    lineHeight: 17,
-    marginBottom: 12,
-  },
-  ctaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  ctaText: {
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  ratingBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 12,
-  },
-  ratingText: {
-    fontSize: 11,
-    fontWeight: '800',
-  },
-});
 
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -407,10 +304,36 @@ export default function BrowsingScreen() {
     return unsub;
   }, []);
 
+  // ── Live Weather & Location Data ──────────────────────────────────────────
+  const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const [weatherModalVisible, setWeatherModalVisible] = useState(false);
+
   useEffect(() => {
-    const unsub = subscribeToContent(data => setContents(data));
-    return unsub;
+    // 1. Instantly display cached weather with 0ms delay
+    getCachedWeather().then(cached => {
+      if (cached) setWeather(cached);
+    });
+
+    // 2. Fetch live real-time GPS & Open-Meteo weather
+    setWeatherLoading(true);
+    fetchLiveWeather()
+      .then(data => setWeather(data))
+      .catch(err => console.warn('Weather fetch error:', err))
+      .finally(() => setWeatherLoading(false));
   }, []);
+
+  const handleRefreshWeather = async () => {
+    setWeatherLoading(true);
+    try {
+      const data = await fetchLiveWeather(true);
+      setWeather(data);
+    } catch (e: any) {
+      console.warn('Weather refresh error:', e);
+    } finally {
+      setWeatherLoading(false);
+    }
+  };
   // ──────────────────────────────────────────────────────────────────────────
 
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -492,12 +415,45 @@ export default function BrowsingScreen() {
       >
         <View style={styles.heroOverlay} />
 
-        {/* ── Top Bar ─────────────────────────────── */}
+        {/* ── Top Bar (Location, Live Weather & Profile Avatar) ── */}
         <View style={styles.heroTopBar}>
-          <View style={styles.locationWrap}>
-            <Text style={styles.locationIcon}>📍</Text>
-            <Text style={styles.locationText}>Dhaka, Bangladesh</Text>
-          </View>
+          <TouchableOpacity
+            style={styles.heroWeatherBadge}
+            onPress={() => setWeatherModalVisible(true)}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Live weather and location updates"
+          >
+            {/* Top row: Location & Live pulse */}
+            <View style={styles.heroLocationRow}>
+              <View style={styles.locationDot} />
+              <Text style={styles.heroLocationText} numberOfLines={1}>
+                {(weather?.district || weather?.locationName || 'Dhaka').toUpperCase()}
+              </Text>
+              <View style={styles.liveIndicator}>
+                <View style={styles.liveIndicatorDot} />
+                <Text style={styles.liveIndicatorText}>LIVE</Text>
+              </View>
+            </View>
+
+            {/* Bottom row: Clean typographic metrics without emojis */}
+            <View style={styles.heroWeatherRow}>
+              <Text style={styles.weatherTempText}>
+                {weather ? `${weather.temperature}°C` : '28°C'}
+              </Text>
+              <Text style={styles.weatherDotSep}>•</Text>
+              <Text style={styles.weatherConditionText} numberOfLines={1}>
+                {(weather?.condition || 'Partly Cloudy').toUpperCase()}
+              </Text>
+              {weather ? (
+                <>
+                  <Text style={styles.weatherDotSep}>•</Text>
+                  <Text style={styles.weatherFeelsText}>FEELS {weather.feelsLike}°</Text>
+                </>
+              ) : null}
+            </View>
+          </TouchableOpacity>
+
           <TouchableOpacity onPress={() => (navigation as any).navigate('Profile')}>
             <View>
               <Image source={{ uri: avatarUrl }} style={styles.heroAvatar} />
@@ -507,7 +463,7 @@ export default function BrowsingScreen() {
         </View>
 
         {/* ── Hero Text ───────────────────────────── */}
-        <Text style={styles.heroTitle}>Exploring hidden stories</Text>
+        <Text style={styles.heroTitle}>Explore the hidden stories</Text>
 
         {/* ── Search & Mic Row ────────────────────── */}
         <View style={styles.heroSearchRow}>
@@ -563,17 +519,12 @@ export default function BrowsingScreen() {
 
 
 
-      {/* ── Heatmap Promo Card ────────────────── */}
+      {/* ── Heatmap Promo Card ──────────────────
       {selectedCategory === 'All' && searchQuery === '' && (
         <HeatmapPromoCard onPress={() => navigation.navigate('Heatmap')} />
-      )}
+      )} */}
 
-      {/* ── Community Discovery Promo Card ───── */}
-      {selectedCategory === 'All' && searchQuery === '' && (
-        <CommunityPromoCard onPress={() => (navigation as any).navigate('Feed')} />
-      )}
-
-      {/* ── Featured Slider ───────────────────── */}
+      {/* ── Featured Slider ─────────────────────
       {selectedCategory === 'All' && searchQuery === '' && (
         <>
           <View style={styles.sectionRow}>
@@ -584,7 +535,7 @@ export default function BrowsingScreen() {
             onPress={trip => navigation.navigate('TripDetail', { trip })}
           />
         </>
-      )}
+      )} */}
 
       {/* ── Stories & Vlogs ───────────────────── */}
       {contents.length > 0 && selectedCategory === 'All' && searchQuery === '' && (
@@ -635,10 +586,36 @@ export default function BrowsingScreen() {
         )}
         ListHeaderComponent={ListHeader}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyIcon}>🗺️</Text>
-            <Text style={[styles.emptyText, { color: colors.textMuted }]}>No trips found</Text>
-          </View>
+          !firestoreReady ? (
+            <View style={styles.empty}>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <Text style={[styles.emptySub, { color: colors.textMuted, marginTop: 12 }]}>
+                Loading tours across Bangladesh...
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.empty}>
+              <Text style={styles.emptyIcon}>🧭</Text>
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>No trips found</Text>
+              <Text style={[styles.emptySub, { color: colors.textMuted }]}>
+                {searchQuery.trim()
+                  ? `No destinations match "${searchQuery}".`
+                  : `No tours currently listed in ${selectedCategory}.`}
+              </Text>
+              {(searchQuery.trim().length > 0 || selectedCategory !== 'All') && (
+                <TouchableOpacity
+                  style={[styles.resetBtn, { backgroundColor: colors.primary }]}
+                  onPress={() => {
+                    setSearchQuery('');
+                    setSelectedCategory('All');
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.resetBtnText}>Reset Search & Filters</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )
         }
         ListFooterComponent={
           selectedCategory === 'All' && searchQuery === '' && allGalleryImages.length > 0 ? (
@@ -651,8 +628,17 @@ export default function BrowsingScreen() {
             </View>
           ) : null
         }
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 90 }]}
         showsVerticalScrollIndicator={false}
+      />
+
+      {/* ── Live Weather Details Modal ─────────── */}
+      <WeatherModal
+        visible={weatherModalVisible}
+        onClose={() => setWeatherModalVisible(false)}
+        weather={weather}
+        loading={weatherLoading}
+        onRefresh={handleRefreshWeather}
       />
     </View>
   );
@@ -690,22 +676,88 @@ function makeStyles(c: AppColors) {
       justifyContent: 'space-between',
       alignItems: 'center',
     },
-    locationWrap: {
+    heroWeatherBadge: {
+      backgroundColor: 'rgba(0, 0, 0, 0.48)',
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: 'rgba(255, 255, 255, 0.16)',
+      maxWidth: SCREEN_WIDTH - 90,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 6,
+    },
+    heroLocationRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: 'rgba(0,0,0,0.3)',
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: Radius.full,
+      marginBottom: 3,
     },
-    locationIcon: {
-      fontSize: 16,
+    locationDot: {
+      width: 5,
+      height: 5,
+      borderRadius: 2.5,
+      backgroundColor: '#10B981',
       marginRight: 6,
     },
-    locationText: {
-      fontSize: 14,
+    heroLocationText: {
+      fontSize: 11,
+      fontWeight: '800',
+      color: '#FFFFFF',
+      letterSpacing: 1.2,
+      fontFamily: Platform.select({ ios: 'Helvetica Neue', android: 'sans-serif-medium' }),
+    },
+    liveIndicator: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: 'rgba(16, 185, 129, 0.25)',
+      paddingHorizontal: 5,
+      paddingVertical: 1.5,
+      borderRadius: Radius.full,
+      marginLeft: 6,
+      gap: 3,
+    },
+    liveIndicatorDot: {
+      width: 4,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: '#10B981',
+    },
+    liveIndicatorText: {
+      fontSize: 8,
+      fontWeight: '800',
+      color: '#10B981',
+      letterSpacing: 0.6,
+    },
+    heroWeatherRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    weatherTempText: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: '#FFFFFF',
+      letterSpacing: 0.5,
+      fontFamily: Platform.select({ ios: 'Helvetica Neue', android: 'sans-serif-medium' }),
+    },
+    weatherDotSep: {
+      fontSize: 10,
+      color: 'rgba(255, 255, 255, 0.4)',
+      marginHorizontal: 5,
+    },
+    weatherConditionText: {
+      fontSize: 10,
       fontWeight: '700',
-      color: '#FFF',
+      color: '#FCD34D',
+      letterSpacing: 0.8,
+      fontFamily: Platform.select({ ios: 'Helvetica Neue', android: 'sans-serif-medium' }),
+    },
+    weatherFeelsText: {
+      fontSize: 10,
+      fontWeight: '600',
+      color: 'rgba(255, 255, 255, 0.75)',
+      letterSpacing: 0.6,
     },
     heroAvatar: {
       width: 44,
@@ -726,11 +778,20 @@ function makeStyles(c: AppColors) {
       borderColor: '#FFF',
     },
     heroTitle: {
-      fontSize: 32,
-      fontWeight: '500',
-      color: '#FFF',
-      lineHeight: 36,
-      marginBottom: 32,
+      fontFamily: Platform.select({
+        ios: 'Didot',
+        android: 'serif',
+        default: 'serif',
+      }),
+      fontSize: 22,
+      fontWeight: '400',
+      color: '#FFFFFF',
+      lineHeight: 40,
+      letterSpacing: 2,
+      marginBottom: 25,
+      textShadowColor: 'rgba(0, 0, 0, 0.4)',
+      textShadowOffset: { width: 0, height: 2 },
+      textShadowRadius: 1,
     },
     heroSearchRow: {
       flexDirection: 'row',
@@ -823,9 +884,35 @@ function makeStyles(c: AppColors) {
     },
 
     // Empty
-    empty: { alignItems: 'center', paddingTop: 60 },
-    emptyIcon: { fontSize: 48, marginBottom: Spacing.md },
-    emptyText: { fontSize: Typography.size.base },
+    empty: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingTop: 60,
+      paddingHorizontal: Spacing.xl,
+    },
+    emptyIcon: { fontSize: 44, marginBottom: Spacing.sm },
+    emptyTitle: {
+      fontSize: 18,
+      fontWeight: '800',
+      marginBottom: 6,
+    },
+    emptySub: {
+      fontSize: 13,
+      textAlign: 'center',
+      lineHeight: 18,
+      marginBottom: Spacing.lg,
+      maxWidth: 280,
+    },
+    resetBtn: {
+      paddingHorizontal: 20,
+      paddingVertical: 10,
+      borderRadius: Radius.full,
+    },
+    resetBtnText: {
+      color: '#FFFFFF',
+      fontSize: 13,
+      fontWeight: '700',
+    },
 
     listContent: { paddingBottom: 48 },
   });

@@ -11,6 +11,7 @@ import {
   Image,
   Pressable,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
@@ -44,6 +45,7 @@ export default function CommunityFeedScreen() {
   const { user } = useAppSelector(s => s.auth);
 
   const [posts, setPosts] = useState<CommunityPost[]>(INITIAL_SEED_POSTS);
+  const [loading, setLoading] = useState(true);
   const [selectedTag, setSelectedTag] = useState('All');
   const [selectedUserFilter, setSelectedUserFilter] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -57,6 +59,7 @@ export default function CommunityFeedScreen() {
   useEffect(() => {
     const unsub = subscribeToCommunityPosts(newPosts => {
       setPosts(newPosts);
+      setLoading(false);
     });
     return unsub;
   }, []);
@@ -147,15 +150,39 @@ export default function CommunityFeedScreen() {
   // ── Header Component for FlatList ──────────────────────────────────────────
   const ListHeader = (
     <View style={styles.listHeaderWrap}>
-      {/* ── 1. Top Bar (Beer Buddy style: Title + Dot + Add Icon) ─────────── */}
+      {/* ── 1. Top Bar with Title and Add (+) Button ─────────────────────── */}
       <View style={[styles.topBar, { paddingTop: insets.top + 10 }]}>
         <View style={styles.titleWrap}>
           <Text style={[styles.appTitle, { color: colors.text }]}>Explora</Text>
           <View style={[styles.brandDot, { backgroundColor: '#FF8A00' }]} />
+          <View style={[styles.communityBadge, { backgroundColor: isDark ? 'rgba(255, 138, 0, 0.15)' : 'rgba(255, 138, 0, 0.12)' }]}>
+            <Text style={styles.communityBadgeText}>COMMUNITY</Text>
+          </View>
         </View>
 
-        {/* Circular Add (+) Button from Reference */}
-
+        {/* Circular Add (+) Button */}
+        <TouchableOpacity
+          id="community-header-add-btn"
+          accessibilityRole="button"
+          accessibilityLabel="Add Post"
+          accessibilityHint="Open form to share a hidden travel spot"
+          style={[
+            styles.addCircleBtn,
+            {
+              backgroundColor: isDark ? colors.surfaceElevated : '#FFFFFF',
+              borderColor: colors.border,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.1,
+              shadowRadius: 4,
+              elevation: 2,
+            },
+          ]}
+          onPress={() => setCreateModalVisible(true)}
+          activeOpacity={0.75}
+        >
+          <Text style={[styles.addCircleIcon, { color: '#FF8A00' }]}>+</Text>
+        </TouchableOpacity>
       </View>
 
       {/* ── 2. Stories / Active Explorers Row (Exact Ring Style from Ref) ── */}
@@ -170,8 +197,10 @@ export default function CommunityFeedScreen() {
             style={styles.storyItem}
             onPress={() => setCreateModalVisible(true)}
             activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Share your story or hidden spot"
           >
-            <View style={[styles.storyAvatarRing, { borderColor: '#005a0fff' }]}>
+            <View style={[styles.storyAvatarRing, { borderColor: '#FF8A00' }]}>
               <Image
                 source={{
                   uri:
@@ -181,7 +210,7 @@ export default function CommunityFeedScreen() {
                 style={styles.storyAvatar}
               />
               {/* Plus Badge */}
-              <View style={[styles.storyPlusBadge, { backgroundColor: '#dc9a3eff' }]}>
+              <View style={[styles.storyPlusBadge, { backgroundColor: '#FF8A00' }]}>
                 <Text style={styles.storyPlusText}>+</Text>
               </View>
             </View>
@@ -294,21 +323,43 @@ export default function CommunityFeedScreen() {
           />
         }
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyIcon}>🧭</Text>
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>No hidden places here</Text>
-            <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
-              {selectedUserFilter
-                ? 'This explorer hasn\'t shared posts in this category yet.'
-                : 'Be the first to upload and share an unmapped spot!'}
-            </Text>
-            <TouchableOpacity
-              style={[styles.emptyBtn, { backgroundColor: colors.primary }]}
-              onPress={() => setCreateModalVisible(true)}
-            >
-              <Text style={styles.emptyBtnText}>+ Share Hidden Place</Text>
-            </TouchableOpacity>
-          </View>
+          loading ? (
+            <View style={styles.emptyContainer}>
+              <ActivityIndicator size="large" color="#FF8A00" />
+              <Text style={[styles.emptySubtitle, { color: colors.textMuted, marginTop: 12 }]}>
+                Discovering community stories...
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyIcon}>🧭</Text>
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>No hidden places here</Text>
+              <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
+                {selectedUserFilter
+                  ? "This explorer hasn't shared posts in this category yet."
+                  : 'Be the first to upload and share an unmapped spot!'}
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+                {(selectedTag !== 'All' || selectedUserFilter) && (
+                  <TouchableOpacity
+                    style={[styles.emptySecondaryBtn, { borderColor: colors.border }]}
+                    onPress={() => {
+                      setSelectedTag('All');
+                      setSelectedUserFilter(null);
+                    }}
+                  >
+                    <Text style={[styles.emptySecondaryBtnText, { color: colors.text }]}>Reset Filters</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  style={[styles.emptyBtn, { backgroundColor: '#FF8A00' }]}
+                  onPress={() => setCreateModalVisible(true)}
+                >
+                  <Text style={styles.emptyBtnText}>+ Share Hidden Place</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )
         }
         renderItem={({ item }) => (
           <CommunityPostCard
@@ -322,6 +373,29 @@ export default function CommunityFeedScreen() {
         )}
       />
 
+      {/* ── Floating Action Button: Add Post (Only on Community Feed) ── */}
+      <TouchableOpacity
+        id="community-feed-add-post-fab"
+        accessibilityRole="button"
+        accessibilityLabel="Share Hidden Spot"
+        accessibilityHint="Opens form to upload photos and create a community post"
+        onPress={() => setCreateModalVisible(true)}
+        style={[
+          styles.floatingAddPostBtn,
+          {
+            backgroundColor: '#FF9F0A',
+            bottom: Math.max(insets.bottom, 16) + 72,
+          },
+        ]}
+        activeOpacity={0.88}
+      >
+        <View style={styles.fabIconWrap}>
+          <View style={styles.fabBarH} />
+          <View style={styles.fabBarV} />
+        </View>
+        <Text style={styles.fabLabel}>Share Gem</Text>
+      </TouchableOpacity>
+
       {/* ── Modals ───────────────────────────────────────────────────────── */}
       <CreatePostModal
         visible={createModalVisible}
@@ -330,17 +404,21 @@ export default function CommunityFeedScreen() {
 
       <CommentsModal
         visible={Boolean(activeCommentsPost)}
-        post={activeCommentsPost}
+        post={activeCommentsPost ? (posts.find(p => p.id === activeCommentsPost.id) || activeCommentsPost) : null}
         onClose={() => setActiveCommentsPost(null)}
         onCommentAdded={newComment => {
           if (activeCommentsPost) {
             setPosts(prev =>
               prev.map(p => {
                 if (p.id === activeCommentsPost.id) {
+                  const existing = p.comments || [];
+                  if (existing.some(c => c.id === newComment.id)) {
+                    return p;
+                  }
                   return {
                     ...p,
                     commentsCount: (p.commentsCount || 0) + 1,
-                    comments: [...(p.comments || []), newComment],
+                    comments: [...existing, newComment],
                   };
                 }
                 return p;
@@ -521,6 +599,73 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 13,
     fontWeight: '800',
+  },
+  emptySecondaryBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptySecondaryBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  communityBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+    borderRadius: 12,
+    marginLeft: 4,
+  },
+  communityBadgeText: {
+    color: '#FF8A00',
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+
+  // Floating Action Button
+  floatingAddPostBtn: {
+    position: 'absolute',
+    right: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 28,
+    gap: 8,
+    shadowColor: '#FF9F0A',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.38,
+    shadowRadius: 10,
+    elevation: 8,
+    zIndex: 99,
+  },
+  fabIconWrap: {
+    width: 14,
+    height: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fabBarH: {
+    width: 14,
+    height: 2.2,
+    borderRadius: 1.1,
+    backgroundColor: '#FFFFFF',
+  },
+  fabBarV: {
+    position: 'absolute',
+    width: 2.2,
+    height: 14,
+    borderRadius: 1.1,
+    backgroundColor: '#FFFFFF',
+  },
+  fabLabel: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
 
   // Lightbox

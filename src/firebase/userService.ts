@@ -1,24 +1,26 @@
 /**
  * userService.ts
- * Firestore CRUD for the `users` collection.
+ * Firestore CRUD and profile management for the `users` collection.
  *
- * Schema: users/{uid}
- *   uid, email, displayName, photoURL, bio, role ('user' | 'admin'),
- *   interests: string[], tripsJoined: number, countriesVisited: number,
- *   createdAt: Timestamp
+ * Roles:
+ * - traveler: default user, can browse, save, post, manage own bookings
+ * - operator: manage assigned tours and permitted bookings
+ * - moderator: review reports and moderate community content
+ * - admin: manage platform-wide content, roles, operations, and audit logs
  */
 
 import {
   doc,
   getDoc,
   setDoc,
-  updateDoc,
   collection,
   getDocs,
   deleteDoc,
   serverTimestamp,
+  updateDoc,
 } from 'firebase/firestore';
 import { db } from './firestore';
+import { UserRole } from '../store/slices/authSlice';
 
 export interface UserProfile {
   uid: string;
@@ -27,11 +29,14 @@ export interface UserProfile {
   photoURL: string | null;
   coverPhotoURL?: string | null;
   bio: string;
-  role: 'user' | 'admin';
+  role: UserRole;
+  operatorLicense?: string;
+  assignedTourIds?: string[];
   interests: string[];
   tripsJoined: number;
   countriesVisited: number;
   createdAt?: any;
+  updatedAt?: any;
 }
 
 /** Create or merge user profile on first sign-in */
@@ -47,12 +52,13 @@ export async function createUserProfile(
       email: data.email ?? null,
       displayName: data.displayName ?? null,
       photoURL: data.photoURL ?? null,
-      bio: 'Adventure seeker & travel enthusiast 🌏',
-      role: 'user',
-      interests: ['Mountains', 'Beaches', 'Nature'],
+      bio: 'Explorer discovering Bangladesh 🌏',
+      role: 'traveler',
+      interests: ['Hills', 'Rivers', 'Beaches', 'Culture'],
       tripsJoined: 0,
       countriesVisited: 0,
       createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     });
   }
 }
@@ -61,7 +67,13 @@ export async function createUserProfile(
 export async function getUserProfile(uid: string): Promise<UserProfile | null> {
   const snap = await getDoc(doc(db, 'users', uid));
   if (!snap.exists()) return null;
-  return snap.data() as UserProfile;
+  const data = snap.data();
+  // Normalize legacy 'user' role to 'traveler'
+  const role: UserRole = data.role === 'user' ? 'traveler' : (data.role || 'traveler');
+  return {
+    ...data,
+    role,
+  } as UserProfile;
 }
 
 /** Update fields in user profile */
@@ -70,7 +82,9 @@ export async function updateUserProfile(
   updates: Partial<Omit<UserProfile, 'uid' | 'createdAt' | 'role'>>
 ): Promise<void> {
   const ref = doc(db, 'users', uid);
-  const cleaned: Record<string, any> = {};
+  const cleaned: Record<string, any> = {
+    updatedAt: serverTimestamp(),
+  };
   for (const [key, val] of Object.entries(updates)) {
     if (val !== undefined) {
       cleaned[key] = val;
@@ -79,21 +93,35 @@ export async function updateUserProfile(
   await setDoc(ref, cleaned, { merge: true });
 }
 
-/** Admin: fetch all users */
+/** Admin / Staff: fetch all users */
 export async function getAllUsers(): Promise<UserProfile[]> {
   const snap = await getDocs(collection(db, 'users'));
-  return snap.docs.map(d => d.data() as UserProfile);
+  return snap.docs.map(d => {
+    const data = d.data();
+    const role: UserRole = data.role === 'user' ? 'traveler' : (data.role || 'traveler');
+    return {
+      ...data,
+      role,
+    } as UserProfile;
+  });
 }
 
-/** Admin: delete a user document (does NOT delete from Auth) */
+/** Admin: delete a user document */
 export async function deleteUserDocument(uid: string): Promise<void> {
   await deleteDoc(doc(db, 'users', uid));
 }
 
-/** Admin: promote / demote a user's role */
+/**
+ * Assign user role (Admin SDK endpoint / Cloud Function simulated locally).
+ * In production, this calls the Cloud Function `setCustomUserClaims`.
+ */
 export async function setUserRole(
   uid: string,
-  role: 'user' | 'admin'
+  role: UserRole
 ): Promise<void> {
-  await updateDoc(doc(db, 'users', uid), { role });
+  const userRef = doc(db, 'users', uid);
+  await updateDoc(userRef, {
+    role,
+    updatedAt: serverTimestamp(),
+  });
 }
